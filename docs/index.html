@@ -177,7 +177,9 @@
     </div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ffmpeg.js/0.2.1/ffmpeg.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ffmpeg.wasm/0.11.0/ffmpeg.min.js" 
+        integrity="sha512-BXDV22GbwMDVTbeeVYIaYeziJ6Yrqk4zmoXuRpKnWD12YhZR5Iy0WgxIaTg/YFYEI8J6INmSYJjJTEpqKUDMQ==" 
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
   <script>
     // グローバル変数
@@ -318,6 +320,16 @@
     function handleServiceWorkerActivated() {
       serviceWorkerRegistered = true;
       
+      // COEPとCOOPヘッダーが適用されているか再確認
+      const headersApplied = await checkCOEPCOOPHeaders();
+      
+      if (!headersApplied) {
+        serviceWorkerStatus.textContent = 'セキュリティヘッダーが適用されていません。5秒後に自動的に再読み込みします...';
+        serviceWorkerStatus.className = 'status-message status-warning';
+        setTimeout(() => window.location.reload(), 5000);
+        return;
+      }
+      
       if (pageNeedsReload) {
         serviceWorkerStatus.textContent = 'Service Workerがアクティブになりました。5秒後に自動的に再読み込みします...';
         serviceWorkerStatus.className = 'status-message status-warning';
@@ -326,6 +338,14 @@
         serviceWorkerStatus.textContent = 'Service Workerがアクティブです。変換を開始できます。';
         serviceWorkerStatus.className = 'status-message status-success';
         fileInput.disabled = false;
+        
+        // FFmpegを事前にロードしておく
+        try {
+          await loadFFmpeg();
+          console.log('FFmpeg事前ロード完了');
+        } catch (e) {
+          console.warn('FFmpeg事前ロードに失敗:', e);
+        }
       }
     }
 
@@ -333,10 +353,9 @@
     async function loadFFmpeg() {
       try {
         // ffmpeg.wasmをインポート (WebAssembly版FFmpeg)
-        const { createFFmpeg } = FFmpeg;
-        ffmpeg = createFFmpeg({
+        ffmpeg = FFmpeg.createFFmpeg({
           log: true,
-          corePath: 'https://cdnjs.cloudflare.com/ajax/libs/ffmpeg-core/0.11.0/ffmpeg-core.js'
+          corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
         });
         await ffmpeg.load();
         console.log('FFmpeg loaded');
@@ -407,8 +426,7 @@
         outputFileName = `${baseName}_converted.webm`;
 
         // FFmpegに入力ファイルを提供
-        const { fetchFile } = FFmpeg;
-        ffmpeg.FS('writeFile', 'input.mov', await fetchFile(file));
+        ffmpeg.FS('writeFile', 'input.mov', await FFmpeg.fetchFile(file));
 
         // 変換設定を準備
         let width = videoInfo.width;
@@ -530,9 +548,10 @@
           console.error('変換エラー:', error);
           conversionMessage.textContent = `変換エラー: ${error.message}`;
         }
+        // UIを正しい状態に戻す
         conversionContainer.classList.add('hidden');
-        uploaderContainer.classList.remove('hidden');
-        fileInput.disabled = false;
+        optionsContainer.classList.remove('hidden'); // ファイル選択ではなく、オプション画面に戻す
+        convertBtn.disabled = false;
       } finally {
         // 不要なファイルをクリーンアップ
         try {
@@ -620,6 +639,21 @@
           resolution: resolutionSelect.value
         };
         
+        // FFmpegがロードされていることを確認
+        if (!ffmpeg || !ffmpeg.isLoaded()) {
+          conversionMessage.textContent = 'FFmpegをロード中...';
+          try {
+            await loadFFmpeg();
+          } catch (error) {
+            conversionMessage.textContent = `FFmpegロードエラー: ${error.message}`;
+            setTimeout(() => {
+              conversionContainer.classList.add('hidden');
+              optionsContainer.classList.remove('hidden');
+            }, 3000);
+            return;
+          }
+        }
+        
         convertVideo(file, options);
       });
       
@@ -664,6 +698,16 @@
         if (!serviceWorkerRegistered) {
           serviceWorkerStatus.textContent = 'SharedArrayBufferが利用できません。Service Workerで対応しています...';
           serviceWorkerStatus.className = 'status-message status-warning';
+        }
+      }
+      
+      // FFmpegを事前にロード
+      if (serviceWorkerRegistered) {
+        try {
+          await loadFFmpeg();
+          console.log('FFmpeg事前ロード完了');
+        } catch (e) {
+          console.warn('FFmpeg事前ロードに失敗:', e);
         }
       }
     });
