@@ -315,7 +315,7 @@
     }
 
     // Service Workerがアクティブになった時の処理
-    function handleServiceWorkerActivated() {
+    async function handleServiceWorkerActivated() {
       serviceWorkerRegistered = true;
       
       // COEPとCOOPヘッダーが適用されているか再確認
